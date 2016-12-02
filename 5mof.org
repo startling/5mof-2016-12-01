@@ -1,0 +1,161 @@
+* gdb, emacs, linux
+
+#+BEGIN_EXAMPLE
+     _  _   ____                   __ 
+   _| || |_| ___| _ __ ___   ___  / _|
+  |_  ..  _|___ \| '_ ` _ \ / _ \| |_ 
+  |_      _|___) | | | | | | (_) |  _|
+    |_||_| |____/|_| |_| |_|\___/|_|  
+                                     
+#+END_EXAMPLE
+
+gdb is the gnu debugger!
+
+you can use it to step through programs.
+
+I use it emacs, ~M-x gdb~. So this is kind of an emacs talk in
+addition to being about gdb. But you can use almost all of this
+without emacs.
+
+** basic gdb
+
+*** looking at variables with gdb.
+
+so, here's a program: [[file:hello.c][~hello.c~]]
+
+we compile it with -g3 so that it includes debugging symbols.  There's
+metadata stored in the executable that refers to source lines.
+
+
+we can break on ~main~ and look at the local variables:
+
++ ~break main~
++ ~run x y z~
++ ~print argc~
++ ~print argv[0]~
+
+*** more complicated things
+
+here's another program: [[file:fib.c][~fib.c~]]. It loops through the fibonacci
+sequence.
+
+
+**** Stepping through the program:
+
++ ~break main~
++ ~run~
++ ~next~
+
+
+**** Watching a variable
+Watch the variable ~a~:
+
++ ~run~
++ ~watch a~
++ ~continue~ 
+
+and keep continuing to see every time it changes.
+
+
+**** Watching a compound expression.
+
+We can watch compound expressions too.
+See what the first fibonacci number after 100 is:
+
++ ~run~
++ ~watch a < 100~
++ ~continue~
++ ~next~
+
+  
+** hooking up gdb to the kernel
+
+*** building the kernel with debugging
+
+we need to build the kernel with debugging, like we built executables
+with -g3.
+
++ clone it with git:
+  ~git clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git~
++ configure it:
+  ~make menuconfig~
+  ~Kernel Hacking > Compile-time ... > Kernel debugging~
++ build it
+  ~make -j4~
+
+*** qemu
+
+ok, so there's this virtualization program qemu. two nice features:
+
++ it lets you specify a kernel on the command-line, so you don't have
+  to mess with a VM image: ~-kernel
+  ~/code/linux/arch/x86_64/boot/bzImage~ (the kernel we just built)
+  ~-append root=/dev/sda3~ (since we're not going through the normal
+  boot process, we need to tell our kernel where the root partition
+  is).
+  
++ it lets you connect to it with gdb and step through the virtualized
+  hardware.
+  ~-gdb tcp::1234~
+  ^ listen on port 1234 for connections from gdb
+  ~s~
+  shorthand for ~-gdb tcp::1234~.
+
+so all together we want
+
+~qemu -hda hda.img -kernel ~/linux/arch/x86_64/boot/bzImage -append "root=/dev/sda3" -gdb tcp::1234~
+
+*** connecting to qemu with gdb
+
++ ~M-x gdb~
++ ~set architecture i386:x86-64~ bc sometimes gdb gets confused
++ ~file ~/linux/vmlinux~
++ ~target remote:1234~
+
+** things to do with gdb and the kernel
+
+these are real examples!
+
+*** debugging a simple system call
+
++ ~sleep()~ on linux goes through the system call ~nanosleep~.
++ on Linux, system calls are named ~sys_x~.
+
++ connect to the kernel
++ ~break sys_nanosleep~
++ ~continue~
++ on the vm, ~sleep 1~
+
+
+*** figuring out the callers for a piece of code
+
+I was curious how tcp sequence numbers were generated in Linux, so I
+found this code:
+
+[[file:~/linux/net/core/secure_seq.c::__u32%20secure_tcp_sequence_number(__be32%20saddr,%20__be32%20daddr,][~secure_tcp_sequence_number~]]
+
+so
++ open it in emacs
++ ~M-x gud-break~
++ ~continue~
+
+then
+
++ ~nc -l 1234 &~
++ ~nc localhost 1234~
+
+then
+
++ ~print saddr~
++ ~print daddr~
++ ~backtrace~ to see the call tree
+
+*** finding the /dev/urandom seed
+
+
++ Find which C file has the /dev/urandom code
+  ~M-x shell~
+  ~find . -name "*random*"~
++ fops are "file operations". urandom_fops
++ break on urandom_read
+
